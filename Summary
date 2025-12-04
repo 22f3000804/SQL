@@ -1,0 +1,84 @@
+PostgreSQL for Data Science: Zero-to-Hero GuideContext: E-commerce Analytics DatabaseTables:users (user_id, name, signup_date, country)orders (order_id, user_id, amount, order_date)products (product_id, category, price)events (event_id, user_id, event_type, event_timestamp)Level 1: Foundations (Data Retrieval & Filtering)1. SELECT, DISTINCT, and AliasingConcept: Extracting specific columns, removing duplicates, and renaming columns for readability.The "Why" in DS: Before modeling, you must explore raw data. DISTINCT is crucial for finding unique cardinality (e.g., "How many unique users do we actually have?").Syntax:SELECT DISTINCT column_name AS new_name FROM table;
+
+Practical Example: Fetch a list of unique countries where our users live.SELECT DISTINCT 
+    country AS user_location 
+FROM users;
+
+Interview Question: What is the difference between SELECT DISTINCT and GROUP BY when no aggregation function is used? (Answer: Functionally they are often identical in result, but GROUP BY is intended for aggregation.)2. Filtering (WHERE, BETWEEN, IN, LIKE)Concept: Restricting rows based on specific criteria.The "Why" in DS: You rarely analyze all data. You analyze specific segments (e.g., "Users who signed up in 2023" or "Orders > $100").Syntax:SELECT * FROM table WHERE col LIKE '%pattern%' AND col2 IN (x, y);
+
+Practical Example: Find all 'Electronics' products with a price between $50 and $200.SELECT * FROM products 
+WHERE category = 'Electronics' 
+  AND price BETWEEN 50 AND 200;
+
+Interview Question: How does the % wildcard differ from the _ wildcard in a LIKE clause? (Answer: % matches any sequence of characters; _ matches a single character.)3. Sorting (ORDER BY) and LimitingConcept: organizing output order and capping the number of rows returned.The "Why" in DS: Used for ranking and quick sanity checks (e.g., "Show me the top 10 recent transactions to ensure the data pipeline is working").Syntax:SELECT * FROM table ORDER BY col DESC LIMIT n;
+
+Practical Example: Find the top 5 highest value orders.SELECT order_id, amount 
+FROM orders 
+ORDER BY amount DESC 
+LIMIT 5;
+
+Interview Question: If a column contains NULL values, where do they appear when sorting DESC in PostgreSQL? (Answer: By default, Postgres puts NULLs first in DESC order, unless you specify NULLS LAST.)4. Basic Aggregation (GROUP BY & HAVING)Concept: Summarizing data by categories. WHERE filters rows before grouping; HAVING filters groups after aggregation.The "Why" in DS: This is the heart of metrics. Calculating KPIs like DAU (Daily Active Users) or ARPU (Average Revenue Per User).Syntax:SELECT category, COUNT(*) FROM table GROUP BY category HAVING COUNT(*) > n;
+
+Practical Example: Find countries that have more than 1,000 registered users.SELECT 
+    country, 
+    COUNT(user_id) as total_users
+FROM users
+GROUP BY country
+HAVING COUNT(user_id) > 1000;
+
+Interview Question: Can you use an alias defined in the SELECT clause inside the HAVING clause in standard SQL? (Answer: In strictly standard SQL, no, because the SELECT processes after HAVING. However, PostgreSQL allows this as a convenience!)Level 2: Intermediate (The Data Science Core)1. Joins (Inner, Left, Right, Full)Concept: Combining columns from two or more tables based on a related column.The "Why" in DS: Data is normalized (split). To build a dataset for Machine Learning (e.g., predicting churn), you need to join User info with Transaction history.Syntax:SELECT t1.col, t2.col 
+FROM table1 t1 
+LEFT JOIN table2 t2 ON t1.id = t2.ref_id;
+
+Practical Example: Show all users and their total order amounts, including users who have never ordered (handling NULLs).SELECT 
+    u.user_id,
+    u.name,
+    COALESCE(SUM(o.amount), 0) as total_spend -- specific Postgres function to handle NULL
+FROM users u
+LEFT JOIN orders o ON u.user_id = o.user_id
+GROUP BY u.user_id, u.name;
+
+Interview Question: If you perform a LEFT JOIN between Table A (100 rows) and Table B (100 rows), what is the maximum possible number of rows in the result? (Answer: If the join key is not unique in B, it could result in a Cartesian product subset, theoretically up to 100 * 100 = 10,000 rows. If keys are unique, it's 100.)2. Date/Time Manipulation (Postgres Specifics)Concept: Converting timestamps into analyzing units (months, weeks) or calculating durations.The "Why" in DS: Cohort Analysis (e.g., "How do users behave in their first month vs second month?").Syntax:DATE_TRUNC('month', column): Rounds date to the first of the month.AGE(timestamp, timestamp): Returns detailed duration.EXTRACT(field FROM source): Pulls out year, month, day.Practical Example: Calculate the total revenue per month for the year 2023.SELECT 
+    DATE_TRUNC('month', order_date) as sales_month,
+    SUM(amount) as revenue
+FROM orders
+WHERE EXTRACT(YEAR FROM order_date) = 2023
+GROUP BY 1 -- Note: While convenient for interviews, positional grouping (using numbers) is discouraged in production code as it breaks if column order changes. Ideally use `GROUP BY DATE_TRUNC('month', order_date)`.
+ORDER BY 1;
+Interview Question: How would you calculate the number of days between two timestamps in Postgres? (Answer: Simply subtract them: date_col_1 - date_col_2 returns an interval. To get an integer, you might use EXTRACT(DAY FROM (date1 - date2)).)3. CASE StatementsConcept: If-Then-Else logic embedded within a query.The "Why" in DS: Feature Engineering. Creating categorical variables from continuous data (Binning) or flagging rows.Syntax:CASE WHEN condition THEN result ELSE other_result END
+
+Practical Example: Segment users into "High Value", "Medium", and "Low" based on a single order amount.SELECT 
+    order_id, 
+    amount,
+    CASE 
+        WHEN amount > 500 THEN 'High Value'
+        WHEN amount BETWEEN 100 AND 500 THEN 'Medium Value'
+        ELSE 'Low Value'
+    END as value_segment
+FROM orders;
+
+Interview Question: Can you use a CASE statement inside an Aggregation function (like SUM)? (Answer: Yes! This is a common trick for "Pivot Table" style queries. E.g., SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END).)4. Subqueries vs. CTEs (Common Table Expressions)Concept: Using the result of one query inside another. CTEs (WITH clauses) act as temporary named tables.The "Why" in DS: Readability and complex multi-step logic. Calculating a metric that requires an aggregation of an aggregation (e.g., "Average number of orders per user").Syntax:WITH named_result AS (SELECT ... ) SELECT * FROM named_result;
+
+Practical Example: Find users whose total spending is above the average total spending of all users.WITH UserTotals AS (
+    SELECT user_id, SUM(amount) as total_spent
+    FROM orders
+    GROUP BY user_id
+)
+SELECT user_id, total_spent
+FROM UserTotals
+WHERE total_spent > (SELECT AVG(total_spent) FROM UserTotals);
+
+Interview Question: Why might you prefer a CTE over a Subquery? (Answer: CTEs are more readable (top-to-bottom logic), reusable (can be referenced multiple times in the main query), and in some databases (like Postgres specifically), they can be materialized for performance optimization.)Level 3: Advanced (Optimization & Complex Logic)1. Window Functions (RANK, LEAD, LAG)Concept: Performing calculations across a set of table rows that are somehow related to the current row, without grouping them into a single output row.The 'Why' in DS: Essential for calculating Moving Averages, Running Totals, and Year-over-Year growth.Syntax:FUNCTION() OVER (PARTITION BY col1 ORDER BY col2)
+Practical Example: Rank products by price within each category.SELECT 
+    product_name, 
+    category, 
+    price,
+    RANK() OVER (PARTITION BY category ORDER BY price DESC) as price_rank
+FROM products;
+Interview Question: What is the difference between RANK(), DENSE_RANK(), and ROW_NUMBER()? (Answer: ROW_NUMBER gives a unique index. RANK skips numbers for ties (1, 2, 2, 4). DENSE_RANK does not skip numbers (1, 2, 2, 3).)2. PostgreSQL Specifics: JSONBConcept: Storing and querying semi-structured data (JSON) directly in the database.The 'Why' in DS: Dealing with event logs or A/B test metadata that often comes in as JSON blobs.Syntax:-> gets JSON object field by key.->> gets JSON object field as text.Practical Example: Extract the 'browser' field from the 'metadata' JSON column in an events table.SELECT 
+    event_id,
+    metadata ->> 'browser' as browser_type
+FROM events
+WHERE metadata @> '{'device': 'mobile'}'; -- Efficient containment check
+Interview Question: Why use JSONB over JSON in Postgres? (Answer: JSONB is binary format; it is slower to insert but significantly faster to query and supports indexing, which is crucial for analytics.)3. Performance Tuning (EXPLAIN ANALYZE)Concept: Understanding how the database executes a query.The 'Why' in DS: optimizing slow queries that process millions of rows.Syntax:EXPLAIN ANALYZE SELECT * FROM ...
+Practical Example: Check if a query is using an Index Scan or a full Sequential Scan.Interview Question: What does a 'Sequential Scan' indicate in an execution plan? (Answer: The database is reading every row in the table. This is often slow for large tables and suggests an Index might be needed.)
